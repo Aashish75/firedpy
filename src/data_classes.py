@@ -503,12 +503,16 @@ class BurnData(LPDAAC):
         return None
 
     def get_date_range(self, start_year: int = None, end_year: int = None) -> List[Tuple[int, int]]:
-        dates = [
-            self._extract_date_parts(f) for f in glob(os.path.join(self.hdf_dir, '**', '*'), recursive=True)
-        ]
-
-        return sorted([d for d in dates if d is not None and (start_year is None or d[0] >= start_year) and (
-                end_year is None or d[0] <= end_year)])
+        # Only look at files that match the current run's year range to avoid old cached files
+        dates = []
+        for f in glob(os.path.join(self.hdf_dir, '**', '*'), recursive=True):
+            date_parts = self._extract_date_parts(f)
+            if date_parts is not None:
+                # Only include files that fall within the requested year range
+                if (start_year is None or date_parts[0] >= start_year) and (end_year is None or date_parts[0] <= end_year):
+                    dates.append(date_parts)
+        
+        return sorted(dates)
 
     def _write_ncs(self, tiles: List[str]):
         """
