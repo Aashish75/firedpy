@@ -724,6 +724,30 @@ class ModelBuilder(Base):
 
         # Get the range of burn years
         burn_years = list(gdf['ig_year'].unique())
+        
+        # Filter burn years to only include those with available land cover data
+        # This prevents errors when land cover data doesn't exist for certain years
+        available_lc_years = set()
+        for tile in tiles:
+            for year in burn_years:
+                mosaic_dir = self._generate_land_cover_mosaic_dir(tile, year)
+                if os.path.exists(mosaic_dir):
+                    lc_files = [f for f in os.listdir(mosaic_dir) if re.match(self._lc_mosaic_re, f)]
+                    if lc_files:  # If we have land cover files for this year/tile
+                        available_lc_years.add(year)
+        
+        # Only process years that have land cover data available
+        burn_years = [year for year in burn_years if year in available_lc_years]
+        
+        if not burn_years:
+            print("Warning: No land cover data found for any burn years. Returning original dataframe with NaN land cover values.")
+            gdf['lc_code'] = np.nan
+            gdf['lc_mode'] = np.nan
+            gdf['lc_desc'] = 'No land cover data available'
+            gdf['lc_type'] = lc_descriptions[land_cover_type]
+            return gdf
+
+        print(f"Processing land cover for years: {sorted(burn_years)}")
 
         # This works faster when split by year and the pointer is outside
         # This is also not the best way
@@ -731,9 +755,6 @@ class ModelBuilder(Base):
         for tile in tiles:
             for year in tqdm(burn_years, position=0, file=sys.stdout):
                 mosaic_dir = self._generate_land_cover_mosaic_dir(tile, year)
-                if not os.path.exists(mosaic_dir):
-                    print(f'No land cover data for {tile} in year {year}')
-                    continue
                 lc_files = sorted([os.path.join(mosaic_dir, f)
                                    for f in os.listdir(mosaic_dir) if re.match(self._lc_mosaic_re, f)])
                 lc_years = [int(re.match(self._lc_mosaic_re, os.path.basename(f)).groupdict()['year']) for f in
@@ -756,7 +777,7 @@ class ModelBuilder(Base):
                 sgdf['lc_code'] = sgdf.apply(point_query, axis=1)
                 sgdf['lc_mode'] = sgdf.groupby('id')['lc_code'].transform(self._mode)
                 sgdfs.append(sgdf)
-
+        
         gdf = pd.concat(sgdfs)
         gdf = gdf.reset_index(drop=True)
         # Add in the class description from land_cover tables
